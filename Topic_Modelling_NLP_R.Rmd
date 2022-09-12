@@ -3,28 +3,314 @@ title: "Topic_Modelling"
 output: github_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+## Dating - App Reviews Dataset
+**Data Set** The data is from 2017-2022. I acquired the data using googleplayscraper from google playstore online. The data I received was more than just the column shown here but were unnecessary.
+
+
+## Loading required packages
+```{r}
+library(readtext)
+library(tidyverse)
+library(quanteda)
+library(quanteda.textmodels)
+library(quanteda.textstats)
+library(quanteda.textplots)
+library(textrank)
+library(readtext)
+library(udpipe)
+library(dplyr)
+library(topicmodels)
+library(quanteda)
+library(tidyverse)
+library(tidytext)
+library(topicdoc)
+library(LDAvis)
+library(broom)
+library(ldatuning)
+library(stm)
+library(seededlda)
+library(keyATM)
+library(kableExtra)
 ```
 
-## GitHub Documents
 
-This is an R Markdown format used for publishing markdown documents to GitHub. When you click the **Knit** button all R code chunks are run and a markdown file (.md) suitable for publishing to GitHub is generated.
-
-## Including Code
-
-You can include R code in the document as follows:
-
-```{r cars}
-summary(cars)
+## Describe data 
+```{r}
+Dating_df <- readtext::readtext("Assignment2.csv",text_field = "Review", docid_field = "ID")
+glimpse(Dating_df)
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+## Create corpus
+```{r}
+Dating_corp <- corpus(Dating_df)
+summary(Dating_corp, n = 5)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Token and DCM
+```{r}
+Dating_toks <- tokens(
+  Dating_corp,
+  remove_punct = TRUE,
+  remove_numbers = TRUE,
+  remove_symbols = TRUE,
+  remove_url = TRUE,
+  split_hyphens = FALSE)
+
+myStopWords = c("Where", "when", "shall", "include", "including", "by",
+                "includes", "included", "may", "uses", "using", "used", "may",
+                "also", "can", "whether", "so", "however", "rather", "â", "s",
+                "said", "one", "two", "three", "k")
+
+Dating_toks2 <- tokens_remove(
+  Dating_toks, pattern = c(stopwords("en"), myStopWords))
+```
+
+
+## Feature Matrix
+
+```{r}
+Dating_dfm <- dfm(Dating_toks2)
+Dating_dfm
+
+Dating_dfm <- dfm(Dating_toks2, tolower = TRUE) %>%
+  dfm_trim(min_termfreq = 3, min_docfreq = 10)
+
+Dating_dfm
+
+```
+
+## Top Features 
+
+```{r}
+ndoc(Dating_dfm)
+
+nfeat(Dating_dfm)
+
+topfeatures(Dating_dfm, 30)
+
+
+```
+
+## 3 Relevent Keywords
+```{r}
+keyword1 <- kwic(Dating_toks2, pattern = phrase("learn*"), window = 2)
+head(keyword1, 5)
+
+keyword2 <- kwic(Dating_toks2, pattern = phrase("content*"), window = 2)
+head(keyword2, 5)
+
+keyword3 <- kwic(Dating_toks2, pattern = phrase("course*"), window = 2)
+head(keyword3, 5)
+
+head(keyword1, 5) %>%
+  kbl() %>%
+  kable_classic(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+```{r}
+head(keyword2, 5) %>%
+  kbl() %>%
+  kable_classic(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+```{r}
+
+head(keyword3, 5) %>%
+  kbl() %>%
+  kable_classic(bootstrap_options = "striped", full_width = F, position = "left")
+```
+```{r}
+Dating_dfm_small <- dfm_trim(Dating_dfm, min_termfreq = 100)
+nfeat(Dating_dfm_small)
+
+Dating_fcm <- fcm(Dating_dfm_small)
+
+feat <- names(topfeatures(Dating_fcm, 30))
+fcmat_select <- fcm_select(Dating_fcm, pattern = feat, selection = "keep")
+```
+
+## Plot 
+```{r}
+size <- log(colSums(dfm_select(Dating_fcm, feat, selection = "keep")))
+
+set.seed(123)
+
+
+textplot_network(fcmat_select, min_freq = 0.5, edge_size = 2, edge_color = "red",
+                 vertex_size = size/max(size)*3)
+
+```
+
+## LDA
+
+```{r}
+Dating_dtmat = quanteda::convert(Dating_dfm, to="topicmodels")
+Dating_lda5 <- LDA(Dating_dtmat, k = 5, control = list(seed = 123))
+
+```
+
+
+## Top 5 
+
+```{r}
+Dating_lda5_betas <- broom::tidy(Dating_lda5)
+
+
+top_terms_in_topics <- Dating_lda5_betas %>%
+  group_by(topic) %>%
+  top_n(5, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+
+top_terms_in_topics
+
+top_terms_in_topics %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+
+test = subset(Dating_df)
+nrow(test)
+
+```
+
+## Best number
+
+```{r}
+train_Dating_dtmat <- corpus_subset(Dating_corp)[1:600,]%>%
+  tokens(remove_punct = TRUE, remove_numbers = TRUE,
+         remove_symbols = TRUE, remove_url = TRUE) %>%
+  dfm(tolower = TRUE) %>%
+  dfm_remove(c(stopwords("en"), myStopWords)) %>%
+  dfm_trim(min_termfreq = 5, min_docfreq = 10) %>%
+  quanteda::convert(to="topicmodels")
+
+test_Dating_dtmat <- corpus_subset(Dating_corp)[601:1000,] %>%
+  tokens(remove_punct = TRUE, remove_numbers = TRUE,
+         remove_symbols = TRUE, remove_url = TRUE) %>%
+  dfm(tolower = TRUE) %>%
+  dfm_remove(c(stopwords("en"), myStopWords)) %>%
+  dfm_trim(min_termfreq = 5, min_docfreq = 10) %>%
+  quanteda::convert(to="topicmodels")
+
+train_Dating_lda5 <- LDA(test_Dating_dtmat, k = 5, control = list(seed = 123))
+perplexity(train_Dating_lda5, test_Dating_dtmat)
+
+
+```
+
+```{r}
+n_topics_vec = 2:5
+perplexity_vec = map_dbl(n_topics_vec, function(kk) {
+  message(kk)
+  train_Dating_ldaK <- LDA(train_Dating_dtmat, k = kk, control = list(seed = 123))
+  perp = perplexity(train_Dating_ldaK, test_Dating_dtmat)
+})
+lda_perplexity_result = tibble(
+  n_topics = n_topics_vec, perplexity = perplexity_vec
+)
+plot(lda_perplexity_result, type="l")
+
+```
+*Observation: As per the above perplexity 2 topics would be best number*
+
+## LDA Tuning 
+```{r}
+library(ldatuning)
+lda_ldatuning_result <- FindTopicsNumber(
+  Dating_dtmat, topics = n_topics_vec,
+  metrics = c("CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "VEM", control = list(seed = 123), mc.cores = 4L, verbose = TRUE
+)
+
+
+FindTopicsNumber_plot(lda_ldatuning_result)
+
+
+
+```
+**Observation: As per the measures, 5 would be best number of topics**
+
+```{r}
+Dating_lda3 <- LDA(Dating_dtmat, k = 3, control = list(seed = 123))
+topicdoc_result = topic_diagnostics(Dating_lda3, Dating_dtmat)
+#below is the diagnostics for the best Model:
+head(topicdoc_result, 5) %>%
+  kbl() %>%
+  kable_classic(bootstrap_options = "striped", full_width = F, position = "left")
+```
+## STM
+```{r}
+library(stm)
+stm_Datingdfmat <- quanteda::convert(Dating_dfm, to = "stm")
+
+out <- prepDocuments( stm_Datingdfmat$documents, 
+                      stm_Datingdfmat$vocab, 
+                      stm_Datingdfmat$meta)
+
+
+Dating_tmob_stm <- stm(out$documents, out$vocab,K=5,
+                         seed=123,emtol=1e-3, max.em.its=150)
+
+
+toLDAvis(mod=Dating_tmob_stm, docs=out$documents)
+
+
+
+plot(Dating_tmob_stm, type="summary", n=5)
+
+```
+
+
+## Top Quality
+```{r}
+topicQuality(Dating_tmob_stm, out$documents)
+```
+
+**Semantic coherence**It explains the relationship between words to aid understanding and interpretation of spoken and written language.
+
+**Exclusivity** measures how distinctive the top words are to that topic
+
+**Topic 3** has more semantic coherence and **Topic 1** has high value of exclusivity
+## 4 set of keywords
+
+```{r}
+library(keyATM)
+keyATM_docs <- keyATM_read(texts = Dating_dfm)
+summary(keyATM_docs)
+
+
+
+Dating_key_list = list(
+  good = c("match", "reason", "amazing", "good", "amazing"),
+  bad = c("banned", "fake", "terrible", "sucks", "useless"),
+  timestamp = c("hours","times","every","work","subscription"),
+  profile =c("tinder","profile","women","experience","men","erotic")
+)
+```
+
+
+## Top 5 keyword in each topic 
+```{r}
+Dating_key_viz <- visualize_keywords(docs = keyATM_docs, keywords = Dating_key_list)
+Dating_key_viz
+
+
+Dating_tmod_keyatm_base <- keyATM(
+  docs = keyATM_docs, 
+  no_keyword_topics = 3, 
+  keywords = Dating_key_list, 
+  model = "base", 
+  options = list(seed = 123))
+
+top_words(Dating_tmod_keyatm_base, 5)
+
+kable(top_words(Dating_tmod_keyatm_base, 5), caption = "Top 5 keywords")
+```
+
